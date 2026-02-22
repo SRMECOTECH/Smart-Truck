@@ -1,0 +1,55 @@
+__pycache__/
+*.py[cod]
+*.so
+.env
+*.pkl
+*.joblib
+.venv/
+venv/
+env/
+node_modules/
+dist/
+build/
+*.egg-info/
+.eggs/
+uploads/
+ml_models/
+*.log
+.idea/
+.vscode/
+*.csv
+*.xls
+*.xlsx
+!data-analysis/cleaned_top100.csv
+!data-analysis/trimmed.csv
+# Environment files
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env/
+.venv/
+
+# ML models (optional - if large)
+*.joblib
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ignore internal modules
+journey_insights/
+driver_analysis/
+migrations/
+route-analysis/

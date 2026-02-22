@@ -1,0 +1,83 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import PageContainer from '../components/layout/PageContainer';
+import SearchInput from '../components/ui/SearchInput';
+import DataTable from '../components/ui/DataTable';
+import Pagination from '../components/ui/Pagination';
+import { useApi } from '../hooks/useApi';
+import { usePagination } from '../hooks/usePagination';
+import { listDrivers } from '../services/drivers';
+import { getDriverScores } from '../services/ml';
+import { formatNumber, formatPercent, formatSpeed, formatDistance } from '../lib/formatters';
+import type { PaginatedResponse } from '../types/common';
+import type { DriverSummaryRow } from '../types/driver';
+
+function ScoreBadge({ score }: { score: number | null }) {
+  if (score == null) return <span className="text-gray-600 text-xs">-</span>;
+  const color = score >= 70 ? 'text-emerald-400 bg-emerald-950/50' :
+                score >= 50 ? 'text-amber-400 bg-amber-950/50' :
+                'text-red-400 bg-red-950/50';
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${color}`}>
+      {score.toFixed(1)}
+    </span>
+  );
+}
+
+export default function DriverList() {
+  const navigate = useNavigate();
+  const { page, setPage, limit, search, onSearch, sortBy, sortOrder, onSort } = usePagination('total_trips', 'desc');
+  const { data, loading } = useApi<PaginatedResponse<DriverSummaryRow>>(
+    () => listDrivers({ page, limit, search, sort_by: sortBy, sort_order: sortOrder }),
+    [page, limit, search, sortBy, sortOrder]
+  );
+
+  // Fetch ML driver scores and build a map
+  const [scoreMap, setScoreMap] = useState<Record<number, number>>({});
+  useEffect(() => {
+    getDriverScores(1000)
+      .then(res => {
+        const map: Record<number, number> = {};
+        (res.data?.drivers || []).forEach((d: any) => {
+          map[d.driver_id] = d.composite_score;
+        });
+        setScoreMap(map);
+      })
+      .catch(() => {}); // silently ignore if ML service unavailable
+  }, []);
+
+  const columns = [
+    { key: 'driver_name', label: 'Driver Name' },
+    { key: 'driver_mobile', label: 'Mobile' },
+    { key: 'score', label: 'Score', render: (r: DriverSummaryRow) => (
+      <ScoreBadge score={scoreMap[r.driver_id] ?? null} />
+    )},
+    { key: 'total_trips', label: 'Total Trips', sortable: true, render: (r: DriverSummaryRow) => formatNumber(r.total_trips) },
+    { key: 'eta_success_rate', label: 'ETA Rate', sortable: true, render: (r: DriverSummaryRow) => (
+      <span className={r.eta_success_rate >= 90 ? 'text-emerald-400' : r.eta_success_rate >= 80 ? 'text-amber-400' : 'text-red-400'}>
+        {formatPercent(r.eta_success_rate)}
+      </span>
+    )},
+    { key: 'avg_speed_kmph', label: 'Avg Speed', sortable: true, render: (r: DriverSummaryRow) => formatSpeed(r.avg_speed_kmph) },
+    { key: 'vehicles_used', label: 'Vehicles', render: (r: DriverSummaryRow) => formatNumber(r.vehicles_used) },
+    { key: 'total_distance_km', label: 'Total Distance', sortable: true, render: (r: DriverSummaryRow) => formatDistance(r.total_distance_km) },
+  ];
+
+  return (
+    <PageContainer title="Drivers">
+      <div className="mb-4 w-72">
+        <SearchInput value={search} onChange={onSearch} placeholder="Search drivers..." />
+      </div>
+      <DataTable
+        columns={columns}
+        data={data?.data || []}
+        loading={loading}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
+        onSort={onSort}
+        onRowClick={(r) => navigate(`/drivers/${r.driver_id}`)}
+      />
+      {data && <Pagination page={data.page} totalPages={data.total_pages} onPageChange={setPage} />}
+    </PageContainer>
+  );
+}

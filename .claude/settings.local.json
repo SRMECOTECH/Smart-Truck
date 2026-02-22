@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd:*)",
+      "Bash(done)",
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(mysql:*)",
+      "Bash(where:*)",
+      "Bash(pip:*)",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"CREATE DATABASE IF NOT EXISTS smart_truck CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\")",
+      "Bash(python:*)",
+      "Bash(timeout:*)",
+      "Bash(findstr:*)",
+      "Bash(ping:*)",
+      "Bash(curl:*)",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS trips FROM trips; SELECT COUNT\\(*\\) AS drivers FROM drivers; SELECT COUNT\\(*\\) AS vehicles FROM vehicles; SELECT COUNT\\(*\\) AS locations FROM locations;\")",
+      "Bash(cmd /c dir \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\smart-truck\" /B)",
+      "Bash(cmd /c where npm)",
+      "Bash(cmd /c where node)",
+      "Bash(test:*)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS total FROM trips WHERE trip_duration_minutes IS NOT NULL AND trip_duration_minutes > 0 AND trip_duration_minutes < 50000 AND trip_km IS NOT NULL AND trip_km > 0 AND trip_start IS NOT NULL;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\":*)",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS with_km FROM trips WHERE trip_km IS NOT NULL AND trip_km > 0; SELECT COUNT\\(*\\) AS total FROM trips;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS has_total_dist FROM trips WHERE total_dist IS NOT NULL AND total_dist > 0; SELECT COUNT\\(*\\) AS has_cover_dist FROM trips WHERE cover_dist IS NOT NULL AND cover_dist > 0; SELECT total_dist, cover_dist, trip_km FROM trips WHERE total_dist IS NOT NULL LIMIT 5;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT * FROM route_summary LIMIT 3; SELECT avg_distance_km FROM route_summary WHERE avg_distance_km IS NOT NULL AND avg_distance_km > 0 LIMIT 3;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SHOW PROCESSLIST;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM locations; SELECT COUNT\\(*\\) AS cnt FROM trips WHERE origin_id IS NOT NULL; SELECT COUNT\\(*\\) AS cnt FROM trips WHERE origin_id IS NOT NULL AND trip_duration_minutes > 0 AND trip_start IS NOT NULL LIMIT 5;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM locations;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM trips WHERE origin_id IS NOT NULL AND trip_duration_minutes IS NOT NULL AND trip_duration_minutes > 0 AND trip_start IS NOT NULL;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM trips t LEFT JOIN locations lo ON t.origin_id = lo.id LEFT JOIN locations ld ON t.destination_id = ld.id WHERE t.trip_duration_minutes IS NOT NULL AND t.trip_duration_minutes > 0 AND t.trip_duration_minutes < 50000 AND t.trip_start IS NOT NULL LIMIT 5;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM trips t LEFT JOIN locations lo ON t.origin_id = lo.id LEFT JOIN locations ld ON t.destination_id = ld.id LEFT JOIN driver_summary ds ON t.driver_id = ds.driver_id LEFT JOIN vehicle_summary vs ON t.vehicle_id = vs.vehicle_id WHERE t.trip_duration_minutes IS NOT NULL AND t.trip_duration_minutes > 0 AND t.trip_duration_minutes < 50000 AND t.trip_start IS NOT NULL;\")",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build:*)"
+    ]
+  }
+}
