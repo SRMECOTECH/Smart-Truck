@@ -22,13 +22,11 @@ export default function Migration() {
   const [stepResults, setStepResults] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [polling, setPolling] = useState(false);
 
-// After
-const result = usePolling<MigrationProgress>(
-  () => getMigrationProgress().then(r => r.data),
-  2000,
-  polling
-);
-const progress = result?.data ?? null;
+  const progress = usePolling<MigrationProgress>(
+    () => getMigrationProgress(),
+    2000,
+    polling
+  );
 
   const runStep = async (key: string, fn: () => Promise<any>) => {
     setStepLoading(prev => ({ ...prev, [key]: true }));
@@ -98,7 +96,7 @@ const progress = result?.data ?? null;
                 <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Dimensions Loaded</p>
                 <div className="flex flex-wrap gap-3 text-sm">
                   {Object.entries(progress.dimensions).map(([k, v]) => (
-                    <span key={k} className="text-gray-300">{k}: <span className="text-blue-400 font-medium">{formatNumber(v)}</span></span>
+                    <span key={k} className="text-gray-300">{k}: <span className="text-blue-400 font-medium">{formatNumber(v as number)}</span></span>
                   ))}
                 </div>
               </div>

@@ -33,7 +33,8 @@
       "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM trips t LEFT JOIN locations lo ON t.origin_id = lo.id LEFT JOIN locations ld ON t.destination_id = ld.id WHERE t.trip_duration_minutes IS NOT NULL AND t.trip_duration_minutes > 0 AND t.trip_duration_minutes < 50000 AND t.trip_start IS NOT NULL LIMIT 5;\")",
       "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM trips t LEFT JOIN locations lo ON t.origin_id = lo.id LEFT JOIN locations ld ON t.destination_id = ld.id LEFT JOIN driver_summary ds ON t.driver_id = ds.driver_id LEFT JOIN vehicle_summary vs ON t.vehicle_id = vs.vehicle_id WHERE t.trip_duration_minutes IS NOT NULL AND t.trip_duration_minutes > 0 AND t.trip_duration_minutes < 50000 AND t.trip_start IS NOT NULL;\")",
       "Bash(npx tsc:*)",
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(npm run build)"
     ]
   }
 }

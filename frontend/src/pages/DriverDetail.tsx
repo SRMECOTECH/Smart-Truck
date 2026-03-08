@@ -359,7 +359,7 @@ export default function DriverDetail() {
                       tickFormatter={(h: number) => `${h}:00`} />
                     <YAxis tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={TOOLTIP_STYLE}
-                      labelFormatter={(h: number) => `${h}:00 - ${h + 1}:00`} />
+                      labelFormatter={(h: any) => `${h}:00 - ${Number(h) + 1}:00`} />
                     <Area type="monotone" dataKey="max_speed" name="Max Speed" stroke="#ef4444" fill="#ef4444" fillOpacity={0.08} strokeWidth={1.5} strokeDasharray="4 2" />
                     <Area type="monotone" dataKey="avg_speed" name="Avg Speed" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} strokeWidth={2} />
                     <Area type="monotone" dataKey="min_speed" name="Min Speed" stroke="#10b981" fill="#10b981" fillOpacity={0.05} strokeWidth={1} />

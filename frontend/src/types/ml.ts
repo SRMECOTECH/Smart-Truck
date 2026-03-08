@@ -29,15 +29,10 @@ export interface AnomalyCheckRequest {
   is_night_trip: number;
 }
 
-export interface FuelPredictRequest {
-  trip_km: number;
-  trip_duration_minutes?: number;
-  avg_speed_kmph?: number;
-  hour?: number;
-  day_of_week?: number;
-  is_weekend?: number;
-  month?: number;
-  load_weight_kg?: number;
+export interface DriverRecommendRequest {
+  origin: string;
+  destination: string;
+  top_n?: number;
 }
 
 export interface RouteOptimizeRequest {
