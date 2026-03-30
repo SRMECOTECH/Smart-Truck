@@ -51,5 +51,4 @@ Thumbs.db
 # Ignore internal modules
 journey_insights/
 driver_analysis/
-migrations/
 route-analysis/

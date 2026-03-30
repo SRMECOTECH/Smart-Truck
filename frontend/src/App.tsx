@@ -12,8 +12,22 @@ const RouteList = lazy(() => import('./pages/RouteList'));
 const RouteDetailPage = lazy(() => import('./pages/RouteDetail'));
 const VehicleList = lazy(() => import('./pages/VehicleList'));
 const VehicleDetail = lazy(() => import('./pages/VehicleDetail'));
-const MLInsights = lazy(() => import('./pages/MLInsights'));
+const ClientList = lazy(() => import('./pages/ClientList'));
+const ClientDetail = lazy(() => import('./pages/ClientDetail'));
 const Migration = lazy(() => import('./pages/Migration'));
+
+// ML Pages
+const MLHub = lazy(() => import('./pages/ml/MLHub'));
+const ETAPredictor = lazy(() => import('./pages/ml/ETAPredictor'));
+const SLAPredictor = lazy(() => import('./pages/ml/SLAPredictor'));
+const AnomalyScanner = lazy(() => import('./pages/ml/AnomalyScanner'));
+const DriverScorer = lazy(() => import('./pages/ml/DriverScorer'));
+const FatigueMonitor = lazy(() => import('./pages/ml/FatigueMonitor'));
+const DriverRecommender = lazy(() => import('./pages/ml/DriverRecommender'));
+const DemandForecaster = lazy(() => import('./pages/ml/DemandForecaster'));
+const RouteOptimizer = lazy(() => import('./pages/ml/RouteOptimizer'));
+const ClientForecast = lazy(() => import('./pages/ml/ClientForecast'));
+const ModelRegistry = lazy(() => import('./pages/ml/ModelRegistry'));
 
 export default function App() {
   return (
@@ -32,8 +46,22 @@ export default function App() {
               <Route path="/routes/:origin/:destination" element={<RouteDetailPage />} />
               <Route path="/vehicles" element={<VehicleList />} />
               <Route path="/vehicles/:id" element={<VehicleDetail />} />
-              <Route path="/ml" element={<MLInsights />} />
+              <Route path="/clients" element={<ClientList />} />
+              <Route path="/clients/:name" element={<ClientDetail />} />
               <Route path="/migration" element={<Migration />} />
+
+              {/* ML Pages */}
+              <Route path="/ml" element={<MLHub />} />
+              <Route path="/ml/eta" element={<ETAPredictor />} />
+              <Route path="/ml/sla" element={<SLAPredictor />} />
+              <Route path="/ml/anomaly" element={<AnomalyScanner />} />
+              <Route path="/ml/driver-scorer" element={<DriverScorer />} />
+              <Route path="/ml/fatigue" element={<FatigueMonitor />} />
+              <Route path="/ml/recommender" element={<DriverRecommender />} />
+              <Route path="/ml/demand" element={<DemandForecaster />} />
+              <Route path="/ml/route-optimizer" element={<RouteOptimizer />} />
+              <Route path="/ml/client-forecast" element={<ClientForecast />} />
+              <Route path="/ml/models" element={<ModelRegistry />} />
             </Routes>
           </Suspense>
         </main>

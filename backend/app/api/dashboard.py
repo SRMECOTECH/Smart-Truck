@@ -49,7 +49,7 @@ def get_top_drivers(limit: int = 10, conn=Depends(get_db)):
                    eta_success_rate, avg_speed_kmph, total_distance_km
             FROM driver_summary
             WHERE total_trips >= 5
-            ORDER BY eta_success_rate DESC
+            ORDER BY total_trips DESC
             LIMIT %s
             """,
             (limit,),

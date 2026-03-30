@@ -16,6 +16,32 @@ export interface VehicleDriver {
   trip_count: number;
 }
 
+export interface VehicleRoutePerf {
+  origin: string;
+  destination: string;
+  trip_count: number;
+  avg_duration_min: number;
+  avg_speed_kmph: number;
+  avg_distance_km: number;
+  eta_success_rate: number;
+}
+
+export interface RouteBenchmark {
+  avg_duration_min: number;
+  avg_speed_kmph: number;
+  avg_distance_km: number;
+  eta_success_rate: number;
+  trip_count: number;
+}
+
+export interface MonthlyTrend {
+  month: string;
+  trips: number;
+  avg_speed: number;
+  eta_rate: number;
+  total_km: number;
+}
+
 export interface VehicleDetail {
   summary: VehicleSummaryRow;
   drivers_used: VehicleDriver[];
@@ -30,4 +56,7 @@ export interface VehicleDetail {
     eta_met: boolean;
     avg_speed_kmph: number;
   }>;
+  vehicle_routes: VehicleRoutePerf[];
+  route_benchmarks: Record<string, RouteBenchmark>;
+  monthly_trend: MonthlyTrend[];
 }

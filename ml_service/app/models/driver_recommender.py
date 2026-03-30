@@ -1,10 +1,10 @@
 """
-Model 7: Driver Recommender
-- Replaces the LSTM predictor
-- Given a route (origin + destination), ranks all available drivers based on
-  their historical performance on that route and similar routes
-- Scoring criteria: avg speed, ETA compliance, consistency, experience on route
-- Output: ranked list of top N drivers with scores and reasoning
+Model 7: Driver Recommender (v2 - Route Experience Priority)
+- Given a route (origin + destination), ranks drivers based on
+  their historical performance on THAT ROUTE first.
+- Only falls back to similar-route drivers if not enough experienced ones.
+- Never recommends random high-scoring drivers with zero route relevance.
+- Output: two sections — "experienced_on_route" and "similar_route_experience"
 """
 
 import logging
@@ -45,7 +45,7 @@ def fetch_driver_route_performance(conn) -> pd.DataFrame:
               AND t.eta_data_status = 'available'
               AND t.driver_id IS NOT NULL
             GROUP BY t.driver_id, d.name, d.mobile1, lo.name, ld.name
-            HAVING COUNT(*) >= 1
+            HAVING COUNT(*) >= 2
         """)
         rows = cur.fetchall()
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -74,7 +74,7 @@ def fetch_driver_overall_stats(conn) -> pd.DataFrame:
 
 def train(conn, models_dir: Path) -> dict:
     logger.info("=" * 50)
-    logger.info("TRAINING: Driver Recommender")
+    logger.info("TRAINING: Driver Recommender v2 (Route-Priority)")
     logger.info("=" * 50)
 
     route_perf = fetch_driver_route_performance(conn)
@@ -150,7 +150,7 @@ def train(conn, models_dir: Path) -> dict:
         ))
     conn.commit()
 
-    logger.info(f"Driver recommender saved to {model_path}")
+    logger.info(f"Driver recommender v2 saved to {model_path}")
 
     return {
         "unique_routes": len(unique_routes),
@@ -160,16 +160,128 @@ def train(conn, models_dir: Path) -> dict:
     }
 
 
+def _bayesian_eta(eta_rate: float, n_trips: float, global_avg: float = 55.0, confidence_trips: float = 10.0) -> float:
+    """Bayesian smoothing for ETA success rate.
+    With few trips, pulls toward the global average.
+    With many trips, trusts the observed rate.
+    confidence_trips = how many trips before we fully trust observed rate.
+    """
+    return (n_trips * eta_rate + confidence_trips * global_avg) / (n_trips + confidence_trips)
+
+
+def _score_route_driver(route_data: dict, driver_overall: dict = None, global_avg_eta: float = 55.0) -> dict:
+    """Score a driver who HAS experience on the exact route.
+    Weights: route_exp=25%, eta=30%, speed=15%, consistency=10%, overall_exp=20%
+    Key fix: Bayesian smoothing on ETA so 1-trip drivers don't rank above veterans.
+    """
+    route_trips = float(route_data.get("route_trips", 0))
+    eta_rate = float(route_data.get("eta_success_rate", 0))
+    speed = float(route_data.get("avg_speed_kmph", 0))
+    stddev = float(route_data.get("duration_stddev", 0) or 0)
+    avg_dur = float(route_data.get("avg_duration_min", 1) or 1)
+
+    total_trips = float(driver_overall.get("total_trips", 0)) if driver_overall else route_trips
+
+    # 1. Route Experience (25%) — logarithmic scale, needs 20+ trips for high score
+    route_exp_score = min(100, np.log1p(route_trips) / np.log1p(30) * 100)
+
+    # 2. ETA Compliance with Bayesian smoothing (30%)
+    # A driver with 1 trip @ 100% ETA → smoothed to ~60% (pulled toward global avg)
+    # A driver with 50 trips @ 80% ETA → smoothed to ~79% (trusts observed)
+    smoothed_eta = _bayesian_eta(eta_rate, route_trips, global_avg_eta, confidence_trips=10.0)
+    eta_score = min(100, smoothed_eta)
+
+    # 3. Speed Efficiency (15%) — optimal 35-55 km/h for trucks
+    if 35 <= speed <= 55:
+        speed_score = 100
+    elif speed > 0:
+        speed_score = max(0, 100 - abs(speed - 45) * 3)
+    else:
+        speed_score = 0
+
+    # 4. Consistency on this route (10%) — penalize unknown (1 trip = no stddev info)
+    if route_trips <= 1:
+        consistency_score = 50  # Unknown consistency, neutral score
+    elif stddev == 0:
+        consistency_score = 100
+    else:
+        cv = stddev / max(avg_dur, 1)
+        consistency_score = max(0, 100 - cv * 100)
+
+    # 5. Overall Experience (20%) — logarithmic, experienced drivers rewarded
+    exp_score = min(100, np.log1p(total_trips) / np.log1p(200) * 100)
+
+    composite = (
+        route_exp_score * 0.25 +
+        eta_score * 0.30 +
+        speed_score * 0.15 +
+        consistency_score * 0.10 +
+        exp_score * 0.20
+    )
+
+    return {
+        "composite_score": round(float(composite), 2),
+        "route_experience_score": round(float(route_exp_score), 2),
+        "eta_compliance_score": round(float(eta_score), 2),
+        "eta_raw_rate": round(float(eta_rate), 2),
+        "speed_efficiency_score": round(float(speed_score), 2),
+        "consistency_score": round(float(consistency_score), 2),
+        "overall_experience_score": round(float(exp_score), 2),
+    }
+
+
+def _score_similar_route_driver(similar_records: list, driver_overall: dict, global_avg_eta: float = 55.0) -> dict:
+    """Score a driver who has experience on similar routes (same origin OR destination).
+    Capped lower than exact-route drivers so they never outrank experienced ones unfairly.
+    """
+    total_similar_trips = sum(float(r.get("route_trips", 0)) for r in similar_records)
+    avg_eta = np.mean([float(r.get("eta_success_rate", 0)) for r in similar_records])
+    avg_speed = np.mean([float(r.get("avg_speed_kmph", 0)) for r in similar_records])
+
+    total_trips = float(driver_overall.get("total_trips", 0))
+
+    # Route experience capped at 80, logarithmic
+    route_exp_score = min(80, np.log1p(total_similar_trips) / np.log1p(30) * 80)
+    # Bayesian smoothed ETA
+    smoothed_eta = _bayesian_eta(avg_eta, total_similar_trips, global_avg_eta, confidence_trips=15.0)
+    eta_score = min(100, smoothed_eta)
+    if 35 <= avg_speed <= 55:
+        speed_score = 100
+    elif avg_speed > 0:
+        speed_score = max(0, 100 - abs(avg_speed - 45) * 3)
+    else:
+        speed_score = 0
+    consistency_score = 50  # Neutral — can't measure on a route they haven't done
+    exp_score = min(100, np.log1p(total_trips) / np.log1p(200) * 100)
+
+    composite = (
+        route_exp_score * 0.20 +
+        eta_score * 0.30 +
+        speed_score * 0.15 +
+        consistency_score * 0.10 +
+        exp_score * 0.25
+    )
+
+    return {
+        "composite_score": round(float(composite), 2),
+        "route_experience_score": round(float(route_exp_score), 2),
+        "eta_compliance_score": round(float(eta_score), 2),
+        "eta_raw_rate": round(float(avg_eta), 2),
+        "speed_efficiency_score": round(float(speed_score), 2),
+        "consistency_score": round(float(consistency_score), 2),
+        "overall_experience_score": round(float(exp_score), 2),
+    }
+
+
 def recommend_drivers(artifact: dict, origin: str, destination: str, top_n: int = 10) -> dict:
     """
-    Recommend best drivers for a given route based on historical performance.
-    Scores drivers on: route experience, speed, ETA compliance, consistency.
-    Falls back to overall stats if driver hasn't done this exact route.
+    Recommend best drivers for a given route.
+    v2: Prioritizes drivers with ACTUAL route experience.
+    Falls back to similar-route (same origin OR same destination) drivers.
+    Never recommends random high-scoring drivers with zero route relevance.
     """
     route_perf = pd.DataFrame(artifact["route_performance"])
     overall_stats = pd.DataFrame(artifact["overall_stats"])
-    global_avg_speed = artifact.get("global_avg_speed", 40.0)
-    global_avg_eta_success = artifact.get("global_avg_eta_success", 50.0)
 
     if route_perf.empty and overall_stats.empty:
         return {"error": "No driver data available"}
@@ -180,107 +292,106 @@ def recommend_drivers(artifact: dict, origin: str, destination: str, top_n: int 
     for col in overall_stats.columns:
         overall_stats[col] = pd.to_numeric(overall_stats[col], errors="ignore")
 
-    # Drivers with experience on this exact route
+    overall_dict = {}
+    if not overall_stats.empty:
+        overall_dict = overall_stats.set_index("driver_id").to_dict("index")
+
+    global_avg_eta = float(artifact.get("global_avg_eta_success", 55.0))
+
+    # ── Section 1: Drivers with EXACT route experience ──────────────────
     route_drivers = route_perf[
         (route_perf["origin"] == origin) & (route_perf["destination"] == destination)
-    ].copy()
+    ]
 
-    # Get overall stats for all drivers
-    if overall_stats.empty:
-        return {"error": "No driver summary data"}
+    experienced_drivers = []
+    experienced_ids = set()
 
-    # Score each driver in overall_stats
-    all_drivers = overall_stats.copy()
-
-    # Merge route-specific data where available
     if not route_drivers.empty:
-        route_driver_dict = route_drivers.set_index("driver_id").to_dict("index")
-    else:
-        route_driver_dict = {}
+        for _, rd in route_drivers.iterrows():
+            did = int(rd["driver_id"])
+            experienced_ids.add(did)
+            driver_overall = overall_dict.get(did, {})
+            scores = _score_route_driver(rd.to_dict(), driver_overall, global_avg_eta)
 
-    scored_drivers = []
-    for _, driver in all_drivers.iterrows():
-        did = int(driver["driver_id"])
-        route_data = route_driver_dict.get(did, None)
+            experienced_drivers.append({
+                "driver_id": did,
+                "driver_name": str(rd.get("driver_name", "Unknown")),
+                "category": "experienced",
+                **scores,
+                "has_route_experience": True,
+                "route_trips": int(rd["route_trips"]),
+                "avg_speed_kmph": round(float(rd.get("avg_speed_kmph", 0)), 2),
+                "eta_success_rate": round(float(rd.get("eta_success_rate", 0)), 2),
+                "avg_duration_min": round(float(rd.get("avg_duration_min", 0)), 2),
+                "total_trips": int(driver_overall.get("total_trips", rd.get("route_trips", 0))),
+            })
 
-        # 1. Route Experience Score (25% weight)
-        if route_data:
-            route_trips = float(route_data.get("route_trips", 0))
-            route_exp_score = min(100, route_trips * 15)  # 7+ trips on route = 100
-        else:
-            route_exp_score = 0
+    experienced_drivers.sort(key=lambda x: x["composite_score"], reverse=True)
 
-        # 2. ETA Compliance Score (30% weight)
-        if route_data:
-            eta_rate = float(route_data.get("eta_success_rate", 0))
-        else:
-            eta_rate = float(driver.get("eta_success_rate", 0))
-        eta_score = min(100, eta_rate)
+    # ── Section 2: Drivers with SIMILAR route experience ────────────────
+    # Same origin or same destination — they know part of the corridor
+    similar_drivers = []
 
-        # 3. Speed Efficiency Score (20% weight)
-        if route_data and route_data.get("avg_speed_kmph"):
-            speed = float(route_data.get("avg_speed_kmph", 0))
-        else:
-            speed = float(driver.get("avg_speed_kmph", 0))
-        # Optimal speed range for trucks: 35-55 km/h
-        if 35 <= speed <= 55:
-            speed_score = 100
-        elif speed > 0:
-            speed_score = max(0, 100 - abs(speed - 45) * 3)
-        else:
-            speed_score = 0
+    if len(experienced_drivers) < top_n:
+        same_origin = route_perf[
+            (route_perf["origin"] == origin) & (route_perf["destination"] != destination)
+        ]
+        same_dest = route_perf[
+            (route_perf["destination"] == destination) & (route_perf["origin"] != origin)
+        ]
+        similar_route_data = pd.concat([same_origin, same_dest])
 
-        # 4. Consistency Score (15% weight)
-        if route_data and route_data.get("duration_stddev"):
-            stddev = float(route_data.get("duration_stddev", 0))
-            if stddev == 0:
-                consistency_score = 100
-            else:
-                avg_dur = float(route_data.get("avg_duration_min", 1))
-                cv = stddev / max(avg_dur, 1)  # coefficient of variation
-                consistency_score = max(0, 100 - cv * 100)
-        else:
-            consistency_score = 50  # neutral if no route data
+        if not similar_route_data.empty:
+            for did, group in similar_route_data.groupby("driver_id"):
+                did = int(did)
+                if did in experienced_ids:
+                    continue
 
-        # 5. Overall Experience Score (10% weight)
-        total_trips = float(driver.get("total_trips", 0))
-        exp_score = min(100, np.log1p(total_trips) / np.log1p(100) * 100)
+                driver_overall = overall_dict.get(did, {})
+                if not driver_overall:
+                    continue
 
-        # Composite score
-        composite = (
-            route_exp_score * 0.25 +
-            eta_score * 0.30 +
-            speed_score * 0.20 +
-            consistency_score * 0.15 +
-            exp_score * 0.10
-        )
+                records = group.to_dict("records")
+                scores = _score_similar_route_driver(records, driver_overall, global_avg_eta)
 
-        scored_drivers.append({
-            "driver_id": did,
-            "driver_name": str(driver.get("driver_name", "Unknown")),
-            "composite_score": round(composite, 2),
-            "route_experience_score": round(route_exp_score, 2),
-            "eta_compliance_score": round(eta_score, 2),
-            "speed_efficiency_score": round(speed_score, 2),
-            "consistency_score": round(consistency_score, 2),
-            "overall_experience_score": round(exp_score, 2),
-            "has_route_experience": route_data is not None,
-            "route_trips": int(route_data["route_trips"]) if route_data else 0,
-            "avg_speed_kmph": round(float(route_data["avg_speed_kmph"]) if route_data and route_data.get("avg_speed_kmph") else float(driver.get("avg_speed_kmph", 0)), 2),
-            "eta_success_rate": round(float(route_data["eta_success_rate"]) if route_data else float(driver.get("eta_success_rate", 0)), 2),
-            "total_trips": int(total_trips),
-        })
+                similar_routes_list = [
+                    f"{r['origin']} -> {r['destination']} ({int(r['route_trips'])} trips)"
+                    for r in sorted(records, key=lambda x: -float(x.get("route_trips", 0)))[:3]
+                ]
 
-    # Sort by composite score descending
-    scored_drivers.sort(key=lambda x: x["composite_score"], reverse=True)
+                similar_drivers.append({
+                    "driver_id": did,
+                    "driver_name": str(driver_overall.get("driver_name", group.iloc[0].get("driver_name", "Unknown"))),
+                    "category": "similar_route",
+                    **scores,
+                    "has_route_experience": False,
+                    "similar_routes": similar_routes_list,
+                    "similar_route_trips": int(group["route_trips"].sum()),
+                    "route_trips": 0,
+                    "avg_speed_kmph": round(float(driver_overall.get("avg_speed_kmph", 0)), 2),
+                    "eta_success_rate": round(float(driver_overall.get("eta_success_rate", 0)), 2),
+                    "total_trips": int(driver_overall.get("total_trips", 0)),
+                })
 
-    # Take top N
-    top_drivers = scored_drivers[:top_n]
+    similar_drivers.sort(key=lambda x: x["composite_score"], reverse=True)
+
+    # ── Build final combined ranking ────────────────────────────────────
+    # Experienced first, then similar-route, up to top_n
+    recommended = experienced_drivers[:top_n]
+    remaining = top_n - len(recommended)
+    if remaining > 0:
+        recommended.extend(similar_drivers[:remaining])
+
+    for i, d in enumerate(recommended):
+        d["rank"] = i + 1
 
     return {
         "origin": origin,
         "destination": destination,
-        "total_candidates": len(scored_drivers),
-        "drivers_with_route_exp": sum(1 for d in scored_drivers if d["has_route_experience"]),
-        "recommended_drivers": top_drivers,
+        "total_candidates": len(experienced_drivers) + len(similar_drivers),
+        "drivers_with_exact_route_exp": len(experienced_drivers),
+        "drivers_with_similar_route_exp": len(similar_drivers),
+        "recommended_drivers": recommended,
+        "experienced_on_route": experienced_drivers[:top_n],
+        "similar_route_experience": similar_drivers[:min(5, top_n)],
     }

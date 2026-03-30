@@ -11,29 +11,17 @@ from typing import Dict, Optional, List
 import pandas as pd
 import numpy as np
 import joblib
-import pymysql
-from pymysql.cursors import DictCursor
+
+from config.settings import settings
+from config.database import get_conn  # noqa: F401  — re-exported for ml_service.app.main
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = settings.PROJECT_ROOT
 MODELS_DIR = PROJECT_ROOT / "ml_models"
 
 # In-memory model cache
 _model_cache: Dict[str, object] = {}
-
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 3306,
-    "user": "root",
-    "password": "root",
-    "database": "smart_truck",
-    "charset": "utf8mb4",
-}
-
-
-def get_conn():
-    return pymysql.connect(**DB_CONFIG, cursorclass=DictCursor)
 
 
 # ============================================
@@ -108,6 +96,39 @@ def predict_eta(features_df: pd.DataFrame) -> Optional[float]:
     return round(float(max(0, prediction)), 2)
 
 
+def _osrm_estimate(origin: str, destination: str) -> dict | None:
+    """Estimate distance/duration via OSRM for routes with no historical data."""
+    import urllib.request
+    import json as _json
+
+    def _geo(place):
+        try:
+            q = urllib.request.quote(f"{place} India")
+            url = f"https://nominatim.openstreetmap.org/search?q={q}&format=json&limit=1"
+            req = urllib.request.Request(url, headers={"User-Agent": "smart-truck-fleet/1.0"})
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = _json.loads(resp.read())
+            return (float(data[0]["lat"]), float(data[0]["lon"])) if data else None
+        except Exception:
+            return None
+
+    g1, g2 = _geo(origin), _geo(destination)
+    if not g1 or not g2:
+        return None
+    try:
+        url = f"http://router.project-osrm.org/route/v1/driving/{g1[1]},{g1[0]};{g2[1]},{g2[0]}?overview=false"
+        resp = urllib.request.urlopen(url, timeout=10)
+        data = _json.loads(resp.read())
+        if data.get("code") == "Ok" and data.get("routes"):
+            r = data["routes"][0]
+            dist_km = round(r["distance"] / 1000, 1)
+            truck_speed = 35  # km/h
+            return {"distance_km": dist_km, "duration_minutes": round(dist_km / truck_speed * 60, 1)}
+    except Exception:
+        pass
+    return None
+
+
 def predict_eta_full(conn, trip_data: dict) -> dict:
     """Full ETA prediction with feature engineering from raw trip data."""
     from ml_service.app.features.feature_engineering import (
@@ -122,50 +143,133 @@ def predict_eta_full(conn, trip_data: dict) -> dict:
 
     # Extract all features
     temporal = extract_temporal_features(trip_data.get("trip_start"))
-    route = get_route_features(conn, trip_data.get("origin", ""), trip_data.get("destination", ""))
+    origin = trip_data.get("origin", "")
+    destination = trip_data.get("destination", "")
+
+    route = get_route_features(conn, origin, destination)
     driver = get_driver_features(conn, trip_data.get("driver_id", 0))
     vehicle = get_vehicle_features(conn, trip_data.get("vehicle_id", 0))
+
+    # Convert pandas dayofweek (0=Mon..6=Sun) → MySQL DAYOFWEEK (1=Sun..7=Sat)
+    pandas_dow = temporal.get("day_of_week", 0)
+    mysql_dow = (pandas_dow + 2) % 7  # Mon=0→2, Tue=1→3, ..., Sun=6→1
+    if mysql_dow == 0:
+        mysql_dow = 7
+
     time_pattern = get_time_pattern_features(
-        conn,
-        trip_data.get("origin", ""),
-        trip_data.get("destination", ""),
+        conn, origin, destination,
         temporal.get("hour", 0),
-        temporal.get("day_of_week", 0),
+        mysql_dow,
     )
+
+    # ── OSRM fallback for routes with no history ──
+    osrm_used = False
+    osrm_estimate = None
+    route_avg_dur = route.get("route_avg_duration")
+    route_avg_dist = route.get("route_avg_distance")
+    route_eta_success = route.get("route_eta_success")
+    route_trip_count = route.get("route_trip_count")
+
+    if not route_avg_dur and not route_avg_dist:
+        # No route history at all — estimate via OSRM
+        logger.info("No route history for %s → %s, trying OSRM estimate", origin, destination)
+        osrm_estimate = _osrm_estimate(origin, destination)
+        if osrm_estimate:
+            osrm_used = True
+            route_avg_dist = osrm_estimate["distance_km"]
+            route_avg_dur = osrm_estimate["duration_minutes"]
+            route["route_avg_distance"] = route_avg_dist
+            route["route_avg_duration"] = route_avg_dur
+            route["route_avg_speed"] = 35.0
+            route["route_eta_success"] = 70.0  # reasonable default
+            route_eta_success = 70.0
+            logger.info("OSRM estimate: %.1f km, %.1f min", route_avg_dist, route_avg_dur)
+
+    # ── Fall back missing time_pattern features to route averages ──
+    if time_pattern.get("time_pattern_avg_duration") is None:
+        time_pattern["time_pattern_avg_duration"] = route_avg_dur
+    if time_pattern.get("time_pattern_trip_count") is None or time_pattern["time_pattern_trip_count"] == 0:
+        time_pattern["time_pattern_trip_count"] = route_trip_count
+    if time_pattern.get("time_pattern_eta_success") is None:
+        time_pattern["time_pattern_eta_success"] = route_eta_success
+
+    # ── Fall back missing trip_km to route average distance ──
+    trip_km = trip_data.get("trip_km")
+    if trip_km is None or trip_km == 0:
+        trip_km = route_avg_dist
+
+    # ── Fill missing driver/vehicle features with global averages ──
+    if driver.get("driver_avg_duration") is None and route_avg_dur:
+        driver["driver_avg_duration"] = route_avg_dur
+    if driver.get("driver_avg_speed") is None:
+        driver["driver_avg_speed"] = route.get("route_avg_speed") or 20.0
+    if driver.get("driver_eta_success") is None and route_eta_success:
+        driver["driver_eta_success"] = route_eta_success
+
+    if vehicle.get("vehicle_avg_speed") is None:
+        vehicle["vehicle_avg_speed"] = route.get("route_avg_speed") or 20.0
+    if vehicle.get("vehicle_eta_success") is None and route_eta_success:
+        vehicle["vehicle_eta_success"] = route_eta_success
+
+    # Detect 5 AM default timestamp
+    ts = trip_data.get("trip_start")
+    is_5am = 0
+    if ts:
+        from datetime import datetime as _dt
+        try:
+            dt_parsed = pd.to_datetime(ts) if not isinstance(ts, _dt) else ts
+            if dt_parsed.hour == 5 and dt_parsed.minute == 0 and dt_parsed.second == 0:
+                is_5am = 1
+        except Exception:
+            pass
 
     feature_df = build_feature_vector(
         temporal, route, driver, vehicle, time_pattern,
-        trip_km=trip_data.get("trip_km"),
+        trip_km=trip_km,
+        is_5am_default=is_5am,
     )
 
-    # Ensure columns match
+    # Ensure columns match — fill remaining NaN with route-level defaults, not 0
     for col in ETA_FEATURE_COLUMNS:
         if col not in feature_df.columns:
             feature_df[col] = 0
-    feature_df = feature_df[ETA_FEATURE_COLUMNS].fillna(0).astype(float)
+    feature_df = feature_df[ETA_FEATURE_COLUMNS]
+
+    # Smart fill: use route_avg_duration for duration-related NaN, else 0
+    if route_avg_dur:
+        for col in ["time_pattern_avg_duration", "driver_avg_duration"]:
+            if col in feature_df.columns:
+                feature_df[col] = feature_df[col].fillna(route_avg_dur)
+    feature_df = feature_df.fillna(0).astype(float)
 
     predicted_duration = predict_eta(feature_df)
 
-    return {
+    result = {
         "predicted_duration_minutes": predicted_duration,
         "features_used": {k: round(float(v), 4) for k, v in feature_df.iloc[0].to_dict().items()},
         "route_avg_duration": route.get("route_avg_duration"),
         "driver_avg_duration": driver.get("driver_avg_duration"),
     }
 
+    # If OSRM was used and model returned 0 or None, fall back to OSRM estimate
+    if osrm_used:
+        result["estimation_source"] = "osrm_estimate"
+        result["osrm_distance_km"] = osrm_estimate["distance_km"]
+        if predicted_duration is None or predicted_duration <= 0:
+            result["predicted_duration_minutes"] = osrm_estimate["duration_minutes"]
+            result["estimation_source"] = "osrm_fallback"
+
+    return result
+
 
 # ============================================
 # ANOMALY DETECTION
 # ============================================
 
-def predict_anomaly(trip_data: dict) -> dict:
-    """Score a single trip for anomaly."""
-    artifact = load_model("anomaly_detector")
-    if artifact is None:
-        return {"anomaly_score": None, "is_anomalous": None, "error": "Model not loaded"}
-
-    from ml_service.app.models.anomaly_detector import predict
-    return predict(artifact, trip_data)
+def scan_anomalies(conn, days: int = 7) -> dict:
+    """Batch scan recent trips for anomalies. One-click endpoint."""
+    from ml_service.app.models.anomaly_detector import scan_recent_trips
+    return scan_recent_trips(conn, days=days)
 
 
 # ============================================
@@ -371,6 +475,78 @@ def list_all_models() -> list:
         if isinstance(r.get("metrics"), str):
             r["metrics"] = json.loads(r["metrics"])
     return rows
+
+
+# ============================================
+# SLA PREDICTION
+# ============================================
+
+def predict_sla(conn, trip_data: dict) -> dict:
+    """Predict whether a trip will meet its ETA."""
+    artifact = load_model("sla_predictor")
+    if artifact is None:
+        return {"error": "SLA predictor model not loaded. Train it first via POST /ml/train/sla_predictor"}
+
+    from ml_service.app.models.sla_predictor import predict_sla as _predict
+    return _predict(artifact, conn, trip_data)
+
+
+# ============================================
+# DRIVER FATIGUE
+# ============================================
+
+def get_fleet_fatigue(conn=None) -> dict:
+    """Get fatigue status for all drivers."""
+    artifact = load_model("fatigue_predictor")
+    if artifact is None:
+        return {"error": "Fatigue predictor not loaded. Train it first via POST /ml/train/fatigue_predictor"}
+
+    from ml_service.app.models.fatigue_predictor import get_fleet_fatigue_status
+    return get_fleet_fatigue_status(artifact)
+
+
+def get_driver_fatigue(driver_id: int) -> dict:
+    """Get fatigue assessment for a single driver."""
+    artifact = load_model("fatigue_predictor")
+    if artifact is None:
+        return {"error": "Fatigue predictor not loaded. Train it first via POST /ml/train/fatigue_predictor"}
+
+    from ml_service.app.models.fatigue_predictor import get_driver_fatigue as _get
+    return _get(artifact, driver_id)
+
+
+# ============================================
+# CLIENT DEMAND FORECASTING
+# ============================================
+
+def get_client_forecast(client: str = None) -> dict:
+    """Get demand forecast for a specific client or all clients."""
+    artifact = load_model("client_demand_forecaster")
+    if artifact is None:
+        return {"error": "Client demand forecaster not loaded. Train via POST /ml/train/client_demand_forecaster"}
+
+    from ml_service.app.models.client_demand_forecaster import get_client_forecast as _get
+    return _get(artifact, client)
+
+
+def get_client_profile(client: str) -> dict:
+    """Get detailed profile for a client."""
+    artifact = load_model("client_demand_forecaster")
+    if artifact is None:
+        return {"error": "Client demand forecaster not loaded. Train first."}
+
+    from ml_service.app.models.client_demand_forecaster import get_client_profile as _get
+    return _get(artifact, client)
+
+
+def list_clients() -> dict:
+    """List all known clients with stats."""
+    artifact = load_model("client_demand_forecaster")
+    if artifact is None:
+        return {"error": "Client demand forecaster not loaded. Train first."}
+
+    from ml_service.app.models.client_demand_forecaster import list_clients as _list
+    return _list(artifact)
 
 
 def get_model_comparison() -> dict:

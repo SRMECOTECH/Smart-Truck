@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Truck, Users, Gauge, Target } from 'lucide-react';
+import { ArrowLeft, Truck, Users, Gauge, Target, Route, TrendingUp, BarChart3 } from 'lucide-react';
 import PageContainer from '../components/layout/PageContainer';
 import KPICard from '../components/ui/KPICard';
 import Badge from '../components/ui/Badge';
@@ -30,16 +30,28 @@ export default function VehicleDetail() {
         <Badge label={s.asset_type} variant="info" />
       </div>
 
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard label="Total Trips" value={formatNumber(s.total_trips)} icon={Truck} color="blue" />
         <KPICard label="Drivers Used" value={formatNumber(s.drivers_used)} icon={Users} color="green" />
         <KPICard label="Avg Speed" value={formatSpeed(s.avg_speed_kmph)} icon={Gauge} color="cyan" />
-        <KPICard label="ETA Rate" value={formatPercent(s.eta_success_rate)} icon={Target} color={s.eta_success_rate >= 90 ? 'green' : s.eta_success_rate >= 80 ? 'amber' : 'red'} />
+        <KPICard label="ETA Rate" value={formatPercent(s.eta_success_rate)} icon={Target} color={s.eta_success_rate >= 60 ? 'green' : s.eta_success_rate >= 40 ? 'amber' : 'red'} />
       </div>
 
+      {/* Distance Summary + Drivers */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-          <h2 className="text-lg font-semibold text-white mb-4">Drivers</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Distance Summary</h2>
+          <div className="space-y-4 text-sm">
+            <div className="flex justify-between"><span className="text-gray-500">Total Distance</span><span className="text-gray-200 font-semibold">{formatDistance(s.total_distance_km)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Avg per Trip</span><span className="text-gray-200 font-semibold">{formatDistance(s.avg_distance_km)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Avg Speed</span><span className="text-gray-200 font-semibold">{formatSpeed(s.avg_speed_kmph)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">ETA Success Rate</span><span className="text-gray-200 font-semibold">{formatPercent(s.eta_success_rate)}</span></div>
+          </div>
+        </div>
+
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-green-400" /> Drivers</h2>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
@@ -63,16 +75,109 @@ export default function VehicleDetail() {
             </tbody>
           </table>
         </div>
-
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-          <h2 className="text-lg font-semibold text-white mb-4">Distance Summary</h2>
-          <div className="space-y-4 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Total Distance</span><span className="text-gray-200 font-semibold">{formatDistance(s.total_distance_km)}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Avg per Trip</span><span className="text-gray-200 font-semibold">{formatDistance(s.avg_distance_km)}</span></div>
-          </div>
-        </div>
       </div>
 
+      {/* Route Performance vs Fleet Average */}
+      {data.vehicle_routes && data.vehicle_routes.length > 0 && (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><Route className="w-4 h-4 text-amber-400" /> Route Performance vs Fleet Average</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-800">
+                  <th className="px-3 py-2 text-left text-xs text-gray-400">Route</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Trips</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Avg Duration</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Fleet Avg</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Avg Speed</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Fleet Avg</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">ETA Rate</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Fleet Avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.vehicle_routes.map((vr, i) => {
+                  const routeKey = `${vr.origin} -> ${vr.destination}`;
+                  const bench = data.route_benchmarks?.[routeKey];
+                  const durDiff = bench && vr.avg_duration_min && bench.avg_duration_min
+                    ? vr.avg_duration_min - bench.avg_duration_min : null;
+                  const etaDiff = bench && bench.eta_success_rate != null
+                    ? vr.eta_success_rate - bench.eta_success_rate : null;
+                  return (
+                    <tr key={i} className="border-b border-gray-800/50">
+                      <td className="px-3 py-2 text-gray-200">{vr.origin} → {vr.destination}</td>
+                      <td className="px-3 py-2 text-right text-gray-300">{vr.trip_count}</td>
+                      <td className="px-3 py-2 text-right text-gray-300">{formatDuration(vr.avg_duration_min)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {bench ? (
+                          <span className="text-gray-500">
+                            {formatDuration(bench.avg_duration_min)}
+                            {durDiff != null && (
+                              <span className={`ml-1 text-xs ${durDiff > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                ({durDiff > 0 ? '+' : ''}{durDiff.toFixed(0)}m)
+                              </span>
+                            )}
+                          </span>
+                        ) : <span className="text-gray-600">-</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-300">{formatSpeed(vr.avg_speed_kmph)}</td>
+                      <td className="px-3 py-2 text-right text-gray-500">{bench ? formatSpeed(bench.avg_speed_kmph) : '-'}</td>
+                      <td className="px-3 py-2 text-right text-gray-300">{formatPercent(vr.eta_success_rate)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {bench ? (
+                          <span className="text-gray-500">
+                            {formatPercent(bench.eta_success_rate)}
+                            {etaDiff != null && (
+                              <span className={`ml-1 text-xs ${etaDiff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                ({etaDiff > 0 ? '+' : ''}{etaDiff.toFixed(1)}%)
+                              </span>
+                            )}
+                          </span>
+                        ) : <span className="text-gray-600">-</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Monthly Trend */}
+      {data.monthly_trend && data.monthly_trend.length > 0 && (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 mb-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-purple-400" /> Monthly Performance (Last 12 Months)</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-800">
+                  <th className="px-3 py-2 text-left text-xs text-gray-400">Month</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Trips</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Total KM</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">Avg Speed</th>
+                  <th className="px-3 py-2 text-right text-xs text-gray-400">ETA Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.monthly_trend.map((m, i) => (
+                  <tr key={i} className="border-b border-gray-800/50">
+                    <td className="px-3 py-2 text-gray-200">{m.month}</td>
+                    <td className="px-3 py-2 text-right text-gray-300">{m.trips}</td>
+                    <td className="px-3 py-2 text-right text-gray-300">{formatDistance(m.total_km)}</td>
+                    <td className="px-3 py-2 text-right text-gray-300">{formatSpeed(m.avg_speed)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Badge label={`${m.eta_rate?.toFixed(1)}%`} variant={m.eta_rate >= 60 ? 'success' : m.eta_rate >= 40 ? 'warning' : 'danger'} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Trips */}
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
         <h2 className="text-lg font-semibold text-white mb-4">Recent Trips</h2>
         <div className="overflow-x-auto">

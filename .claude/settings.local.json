@@ -34,7 +34,19 @@
       "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot smart_truck -e \"SELECT COUNT\\(*\\) AS cnt FROM trips t LEFT JOIN locations lo ON t.origin_id = lo.id LEFT JOIN locations ld ON t.destination_id = ld.id LEFT JOIN driver_summary ds ON t.driver_id = ds.driver_id LEFT JOIN vehicle_summary vs ON t.vehicle_id = vs.vehicle_id WHERE t.trip_duration_minutes IS NOT NULL AND t.trip_duration_minutes > 0 AND t.trip_duration_minutes < 50000 AND t.trip_start IS NOT NULL;\")",
       "Bash(npx tsc:*)",
       "Bash(npx vite build:*)",
-      "Bash(npm run build)"
+      "Bash(npm run build)",
+      "Bash(xargs grep:*)",
+      "Bash(python3:*)",
+      "Bash(grep -r \"recommend\\\\|driver.*rank\\\\|score\" /c/Users/Sanjoy Chattopadhyay/PycharmProjects/smart-truck/backend/app/api/*.py)",
+      "Bash(grep -r \"recommend\\\\|rank\" backend/app/api/*.py)",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT ROUND\\(MIN\\(trip_duration_minutes\\),2\\) AS min_dur, ROUND\\(AVG\\(trip_duration_minutes\\),2\\) AS avg_dur, ROUND\\(PERCENTILE_CONT\\(0.5\\) WITHIN GROUP \\(ORDER BY trip_duration_minutes\\) OVER\\(\\),2\\) AS median_dur, ROUND\\(MAX\\(trip_duration_minutes\\),2\\) AS max_dur, COUNT\\(*\\) AS cnt FROM smart_truck.trips WHERE trip_duration_minutes > 0 AND eta_data_status=''available'' LIMIT 1;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT ROUND\\(MIN\\(trip_duration_minutes\\),2\\) AS min_dur, ROUND\\(AVG\\(trip_duration_minutes\\),2\\) AS avg_dur, ROUND\\(MAX\\(trip_duration_minutes\\),2\\) AS max_dur, COUNT\\(*\\) AS cnt FROM smart_truck.trips WHERE trip_duration_minutes > 0 AND eta_data_status=''available'';\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT ROUND\\(AVG\\(trip_duration_minutes\\),2\\) AS avg_dur, ROUND\\(AVG\\(avg_speed_kmph\\),2\\) AS avg_speed, ROUND\\(AVG\\(trip_km\\),2\\) AS avg_km, COUNT\\(*\\) AS cnt FROM smart_truck.trips t JOIN smart_truck.locations lo ON t.origin_id = lo.id JOIN smart_truck.locations ld ON t.destination_id = ld.id WHERE lo.name=''JHARSUGUDA'' AND ld.name=''CHENNAI'' AND t.trip_duration_minutes > 0;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT avg_duration_min, avg_speed_kmph, avg_distance_km, trip_count FROM smart_truck.route_summary WHERE origin=''JHARSUGUDA'' AND destination=''CHENNAI'';\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT avg_duration, trip_count FROM smart_truck.route_time_patterns WHERE origin=''JHARSUGUDA'' AND destination=''CHENNAI'' AND hour_of_day=22 AND day_of_week=7;\")",
+      "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT hour_of_day, day_of_week, avg_duration, trip_count FROM smart_truck.route_time_patterns WHERE origin=''JHARSUGUDA'' AND destination=''CHENNAI'' ORDER BY trip_count DESC LIMIT 10;\")",
+      "Bash(find /c/Users/Sanjoy Chattopadhyay/PycharmProjects/smart-truck/backend -name \"*.py\" -type f -exec grep -l \"locations\\\\|location\\\\|origin\\\\|destination\" {})",
+      "Bash(find /c/Users/Sanjoy Chattopadhyay/PycharmProjects/smart-truck/ml_service -name *.py -type f -path */app/*)"
     ]
   }
 }

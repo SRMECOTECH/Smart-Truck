@@ -41,7 +41,7 @@ def get_route_features(conn, origin_name: str, dest_name: str) -> Dict:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT avg_duration_min, avg_distance_km, trip_count, eta_success_rate
+            SELECT avg_duration_min, avg_distance_km, avg_speed_kmph, trip_count, eta_success_rate
             FROM route_summary
             WHERE origin = %s AND destination = %s
             """,
@@ -53,11 +53,12 @@ def get_route_features(conn, origin_name: str, dest_name: str) -> Dict:
         return {
             "route_avg_duration": float(row["avg_duration_min"]) if row["avg_duration_min"] else None,
             "route_avg_distance": float(row["avg_distance_km"]) if row["avg_distance_km"] else None,
+            "route_avg_speed": float(row["avg_speed_kmph"]) if row["avg_speed_kmph"] else None,
             "route_trip_count": row["trip_count"],
             "route_eta_success": float(row["eta_success_rate"]) if row["eta_success_rate"] else None,
         }
     return {
-        "route_avg_duration": None, "route_avg_distance": None,
+        "route_avg_duration": None, "route_avg_distance": None, "route_avg_speed": None,
         "route_trip_count": 0, "route_eta_success": None,
     }
 
@@ -138,6 +139,7 @@ def build_feature_vector(
     vehicle: Dict,
     time_pattern: Dict,
     trip_km: Optional[float] = None,
+    is_5am_default: int = 0,
 ) -> pd.DataFrame:
     """Combine all features into a single DataFrame row for model input."""
     features = {}
@@ -148,6 +150,7 @@ def build_feature_vector(
     features.update(time_pattern)
     if trip_km is not None:
         features["trip_km"] = trip_km
+    features["is_5am_default"] = is_5am_default
 
     # Remove non-numeric for model (time_bucket is categorical)
     if "time_bucket" in features:
@@ -171,4 +174,5 @@ ETA_FEATURE_COLUMNS = [
     "vehicle_avg_speed", "vehicle_total_trips", "vehicle_eta_success",
     "time_pattern_avg_duration", "time_pattern_trip_count", "time_pattern_eta_success",
     "trip_km",
+    "is_5am_default",
 ]

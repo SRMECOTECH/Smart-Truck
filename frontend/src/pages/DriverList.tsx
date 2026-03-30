@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../components/layout/PageContainer';
 import SearchInput from '../components/ui/SearchInput';
@@ -7,12 +6,11 @@ import Pagination from '../components/ui/Pagination';
 import { useApi } from '../hooks/useApi';
 import { usePagination } from '../hooks/usePagination';
 import { listDrivers } from '../services/drivers';
-import { getDriverScores } from '../services/ml';
 import { formatNumber, formatPercent, formatSpeed, formatDistance } from '../lib/formatters';
 import type { PaginatedResponse } from '../types/common';
 import type { DriverSummaryRow } from '../types/driver';
 
-function ScoreBadge({ score }: { score: number | null }) {
+function ScoreBadge({ score }: { score: number | null | undefined }) {
   if (score == null) return <span className="text-gray-600 text-xs">-</span>;
   const color = score >= 70 ? 'text-emerald-400 bg-emerald-950/50' :
                 score >= 50 ? 'text-amber-400 bg-amber-950/50' :
@@ -32,25 +30,11 @@ export default function DriverList() {
     [page, limit, search, sortBy, sortOrder]
   );
 
-  // Fetch ML driver scores and build a map
-  const [scoreMap, setScoreMap] = useState<Record<number, number>>({});
-  useEffect(() => {
-    getDriverScores(1000)
-      .then(res => {
-        const map: Record<number, number> = {};
-        (res.data?.drivers || []).forEach((d: any) => {
-          map[d.driver_id] = d.composite_score;
-        });
-        setScoreMap(map);
-      })
-      .catch(() => {}); // silently ignore if ML service unavailable
-  }, []);
-
   const columns = [
     { key: 'driver_name', label: 'Driver Name' },
     { key: 'driver_mobile', label: 'Mobile' },
     { key: 'score', label: 'Score', render: (r: DriverSummaryRow) => (
-      <ScoreBadge score={scoreMap[r.driver_id] ?? null} />
+      <ScoreBadge score={(r as any).composite_score ?? null} />
     )},
     { key: 'total_trips', label: 'Total Trips', sortable: true, render: (r: DriverSummaryRow) => formatNumber(r.total_trips) },
     { key: 'eta_success_rate', label: 'ETA Rate', sortable: true, render: (r: DriverSummaryRow) => (

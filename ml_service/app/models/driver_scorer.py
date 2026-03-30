@@ -93,9 +93,18 @@ def train(conn, models_dir: Path) -> dict:
     # SCORING COMPONENTS (each normalized 0-100)
     # ============================================
 
-    # 1. ETA Compliance Score (40% weight)
-    # Higher is better: % of trips meeting ETA
-    df["eta_score"] = df["eta_success_rate"].fillna(0).clip(0, 100).astype(float)
+    # 1. ETA Compliance Score (35% weight)
+    # Bayesian-smoothed: a driver with 4/4 = 100% should NOT outrank
+    # a driver with 375/500 = 75%. We shrink small-sample rates
+    # toward the fleet average so experience earns trust.
+    global_eta_avg = df["eta_success_rate"].mean() or 55.0
+    confidence_trips = 15.0  # how many trips before we fully trust raw rate
+    raw_eta = df["eta_success_rate"].fillna(0).astype(float)
+    n_trips = df["total_trips"].astype(float)
+    df["eta_score"] = (
+        (n_trips * raw_eta + confidence_trips * global_eta_avg)
+        / (n_trips + confidence_trips)
+    ).clip(0, 100)
 
     # 2. Speed Safety Score (20% weight)
     # Penalize average speeds that are too high (unsafe) or too low (inefficient)
@@ -143,11 +152,11 @@ def train(conn, models_dir: Path) -> dict:
     # ============================================
 
     df["composite_score"] = (
-        df["eta_score"] * 0.40
-        + df["speed_score"] * 0.20
-        + df["consistency_score"] * 0.20
-        + df["experience_score"] * 0.10
-        + df["efficiency_score"] * 0.10
+        df["eta_score"] * 0.35           # Bayesian-smoothed ETA compliance
+        + df["speed_score"] * 0.15       # Speed safety
+        + df["consistency_score"] * 0.20 # Duration consistency
+        + df["experience_score"] * 0.20  # Experience (boosted from 10%)
+        + df["efficiency_score"] * 0.10  # Route efficiency
         - df["safety_penalty"]
     ).clip(0, 100).round(2)
 
@@ -220,10 +229,10 @@ def train(conn, models_dir: Path) -> dict:
     model_path = str(models_dir / "driver_scorer.joblib")
     joblib.dump({
         "weights": {
-            "eta_compliance": 0.40,
-            "speed_safety": 0.20,
+            "eta_compliance_bayesian": 0.35,
+            "speed_safety": 0.15,
             "consistency": 0.20,
-            "experience": 0.10,
+            "experience": 0.20,
             "efficiency": 0.10,
         },
         "thresholds": {

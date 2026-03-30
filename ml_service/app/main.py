@@ -1,20 +1,29 @@
 """
-Smart-Truck ML Service API
+Smart-Truck ML Service API v3
 Serves predictions from all trained ML/DL models.
+New in v3: SLA prediction, fatigue monitoring, batch anomaly scan, training tiers.
 
 Run with:
     uvicorn ml_service.app.main:app --host 0.0.0.0 --port 8001 --reload
 """
 
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+import time
+import logging
+
+from fastapi import FastAPI, HTTPException, Query, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+from config.logging_config import setup_logging
+
+setup_logging(service_name="ml-service")
+logger = logging.getLogger(__name__)
+
 from ml_service.app.serving.model_server import (
     predict_eta_full,
-    predict_anomaly,
+    scan_anomalies,
     get_driver_score,
     get_all_driver_scores,
     get_demand_forecast,
@@ -22,6 +31,12 @@ from ml_service.app.serving.model_server import (
     get_hub_locations,
     recommend_drivers,
     get_trip_forecast,
+    predict_sla,
+    get_fleet_fatigue,
+    get_driver_fatigue,
+    get_client_forecast,
+    get_client_profile,
+    list_clients,
     get_model_info,
     list_all_models,
     get_model_comparison,
@@ -33,8 +48,8 @@ from ml_service.app.serving.model_server import (
 app = FastAPI(
     title="Smart-Truck ML Service",
     description="Machine Learning model serving for fleet analytics. "
-                "Provides predictions from 6 trained ML models.",
-    version="2.0.0",
+                "Provides predictions from 9 trained ML models.",
+    version="3.0.0",
     docs_url="/docs",
 )
 
@@ -45,6 +60,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Request logging middleware ---
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    logger.info(">>> %s %s", request.method, request.url.path)
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("!!! %s %s  UNHANDLED EXCEPTION", request.method, request.url.path)
+        raise
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    logger.info(
+        "<<< %s %s  %s  %.0fms",
+        request.method, request.url.path, response.status_code, elapsed_ms,
+    )
+    return response
+
+
+logger.info("ML Service ready  routes=%d", len(app.routes))
 
 
 # ============================================
@@ -60,13 +96,13 @@ class ETAPredictRequest(BaseModel):
     trip_start: Optional[str] = Field(None, description="Trip start datetime (ISO format)")
 
 
-class AnomalyCheckRequest(BaseModel):
-    trip_duration_minutes: float
-    eta_delay_minutes: float = 0
-    duration_ratio: float = 1.0
-    delay_ratio: float = 0
-    hour_deviation: float = 12
-    is_night_trip: int = 0
+class SLAPredictRequest(BaseModel):
+    origin: str = Field(..., description="Origin location name")
+    destination: str = Field(..., description="Destination location name")
+    driver_id: Optional[int] = Field(None, description="Driver ID")
+    vehicle_id: Optional[int] = Field(None, description="Vehicle ID")
+    trip_km: Optional[float] = Field(None, description="Trip distance in km")
+    trip_start: Optional[str] = Field(None, description="Trip start datetime (ISO format)")
 
 
 class RouteOptimizeRequest(BaseModel):
@@ -83,37 +119,38 @@ class DriverRecommendRequest(BaseModel):
     top_n: int = Field(10, ge=1, le=100, description="Number of drivers to recommend")
 
 
-class TrainRequest(BaseModel):
-    model_name: str = Field(..., description="Model to train")
-
-
 # ============================================
 # HEALTH & INFO
 # ============================================
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "smart-truck-ml", "timestamp": datetime.now().isoformat()}
+    return {"status": "ok", "service": "smart-truck-ml", "version": "3.0.0",
+            "timestamp": datetime.now().isoformat()}
 
 
 @app.get("/ml")
 def ml_root():
     return {
-        "message": "Smart-Truck ML Service v2",
+        "message": "Smart-Truck ML Service v3",
         "models": {
-            "eta_predictor": "POST /ml/predict/eta - Predict trip ETA (returns expected arrival date/time)",
-            "anomaly_detector": "POST /ml/predict/anomaly - Detect trip anomalies",
-            "driver_scorer": "GET /ml/drivers/scores - Driver risk/performance scores",
+            "eta_predictor": "POST /ml/predict/eta - Predict trip ETA",
+            "sla_predictor": "POST /ml/predict/sla - Will delivery be on time? (probability + risk)",
+            "anomaly_detector": "POST /ml/scan/anomalies - Batch scan recent trips for anomalies",
+            "driver_scorer": "GET /ml/drivers/scores - Driver performance scores",
+            "fatigue_predictor": "GET /ml/drivers/fatigue - Fleet fatigue status",
             "demand_forecaster": "GET /ml/forecast/demand - Route demand forecast",
             "route_optimizer": "POST /ml/optimize/route - Find optimal route",
             "driver_recommender": "POST /ml/recommend/drivers - Recommend best drivers for a route",
             "trip_forecaster": "GET /ml/forecast/trips - Forecast expected trips next week",
+            "client_demand_forecaster": "GET /ml/clients/forecast - Client/company demand forecast",
         },
         "management": {
             "models": "GET /ml/models - List all models",
             "comparison": "GET /ml/models/comparison - Compare active models",
             "train": "POST /ml/train/{model_name} - Train a model",
             "train_all": "POST /ml/train-all - Train all models",
+            "train_tier": "POST /ml/train-tier/{tier} - Run scheduled training tier (daily/weekly/monthly)",
         },
     }
 
@@ -143,17 +180,50 @@ def predict_eta_endpoint(request: ETAPredictRequest):
 
 
 # ============================================
-# ANOMALY DETECTION
+# SLA PREDICTION (NEW)
 # ============================================
 
-@app.post("/ml/predict/anomaly")
-def predict_anomaly_endpoint(request: AnomalyCheckRequest):
-    """Check if a trip is anomalous based on its characteristics."""
+@app.post("/ml/predict/sla")
+def predict_sla_endpoint(request: SLAPredictRequest):
+    """Predict whether a trip will meet its ETA.
+    Returns: on_time_probability, prediction, risk_level, contributing_factors."""
+    conn = get_conn()
     try:
-        result = predict_anomaly(request.model_dump())
+        result = predict_sla(conn, {
+            "origin": request.origin,
+            "destination": request.destination,
+            "driver_id": request.driver_id,
+            "vehicle_id": request.vehicle_id,
+            "trip_km": request.trip_km,
+            "trip_start": request.trip_start or datetime.now().isoformat(),
+        })
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ============================================
+# ANOMALY DETECTION (BATCH SCAN — replaces manual predict)
+# ============================================
+
+@app.post("/ml/scan/anomalies")
+def scan_anomalies_endpoint(days: int = Query(7, ge=1, le=90, description="Scan trips from last N days")):
+    """One-click anomaly scan: scores recent trips, creates alerts.
+    No manual input needed — just click. Returns summary of findings."""
+    conn = get_conn()
+    try:
+        result = scan_anomalies(conn, days=days)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 
 # ============================================
@@ -182,6 +252,39 @@ def get_single_driver_score(driver_id: int):
         return score
     finally:
         conn.close()
+
+
+# ============================================
+# DRIVER FATIGUE (NEW)
+# ============================================
+
+@app.get("/ml/drivers/fatigue")
+def get_fleet_fatigue_endpoint():
+    """Get fatigue risk status for all drivers.
+    Returns: summary (critical/high/medium/low counts), top at-risk drivers."""
+    try:
+        result = get_fleet_fatigue()
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ml/drivers/{driver_id}/fatigue")
+def get_driver_fatigue_endpoint(driver_id: int):
+    """Get fatigue assessment for a specific driver."""
+    try:
+        result = get_driver_fatigue(driver_id)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================
@@ -233,7 +336,9 @@ def get_hubs():
 
 @app.post("/ml/recommend/drivers")
 def recommend_drivers_endpoint(request: DriverRecommendRequest):
-    """Recommend best-suited drivers for a given route based on performance, speed, ETA compliance."""
+    """Recommend best-suited drivers for a route.
+    v2: Prioritizes drivers with actual route experience.
+    Returns separate sections for experienced vs similar-route drivers."""
     try:
         result = recommend_drivers(request.origin, request.destination, request.top_n)
         if "error" in result:
@@ -254,6 +359,55 @@ def forecast_trips(route: Optional[str] = Query(None, description="Route in 'Ori
     """Forecast expected number of trips for next week (fleet-wide or per route)."""
     try:
         result = get_trip_forecast(route)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# CLIENT DEMAND FORECASTING
+# ============================================
+
+@app.get("/ml/clients")
+def list_clients_endpoint():
+    """List all known clients with trip stats and forecast availability."""
+    try:
+        result = list_clients()
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ml/clients/forecast")
+def get_client_forecast_endpoint(
+    client: Optional[str] = Query(None, description="Client/company name (partial match supported)")
+):
+    """Get demand forecast for a client or all clients.
+    Returns: predicted trips for next 7 days, trend, growth rate."""
+    try:
+        result = get_client_forecast(client)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/ml/clients/{client_name}/profile")
+def get_client_profile_endpoint(client_name: str):
+    """Get detailed profile for a client: top routes, seasonal patterns, volume stats."""
+    try:
+        result = get_client_profile(client_name)
         if "error" in result:
             raise HTTPException(status_code=404, detail=result["error"])
         return result
@@ -317,7 +471,6 @@ def train_model(model_name: str, background_tasks: BackgroundTasks):
 
     def _train():
         result = train_single(model_name)
-        # Clear cache so next prediction uses new model
         clear_cache(model_name)
         return result
 
@@ -363,11 +516,42 @@ def train_all_models(background_tasks: BackgroundTasks):
     background_tasks.add_task(_train)
     return {
         "status": "started",
-        "message": "Training all 6 models in background. Check /ml/models for progress.",
+        "message": "Training all 9 models in background. Check /ml/models for progress.",
         "models": [
             "eta_predictor", "anomaly_detector", "driver_scorer",
             "demand_forecaster", "route_optimizer", "driver_recommender",
+            "sla_predictor", "fatigue_predictor", "client_demand_forecaster",
         ],
+    }
+
+
+@app.post("/ml/train-tier/{tier}")
+def train_tier_endpoint(tier: str, background_tasks: BackgroundTasks):
+    """Run a scheduled training tier: daily, weekly, or monthly.
+    - daily: driver scores, recommender, fatigue (fast)
+    - weekly: ETA, anomaly, demand, SLA (heavier)
+    - monthly: all models (full retrain)"""
+    from ml_service.app.training.train_pipeline import TRAINING_TIERS, train_tier
+
+    if tier not in TRAINING_TIERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown tier: {tier}. Available: {list(TRAINING_TIERS.keys())}",
+        )
+
+    def _train():
+        result = train_tier(tier)
+        clear_cache()
+        return result
+
+    background_tasks.add_task(_train)
+    tier_info = TRAINING_TIERS[tier]
+    return {
+        "status": "started",
+        "tier": tier,
+        "description": tier_info["description"],
+        "models": tier_info["models"],
+        "message": f"Running {tier} training tier in background.",
     }
 
 

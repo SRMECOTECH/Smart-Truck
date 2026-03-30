@@ -1,10 +1,61 @@
-from fastapi import APIRouter, Depends, Query
+import logging
+import math
 from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
 from backend.app.core.database import get_db
 from backend.app.schemas.driver import DriverSummaryOut
-import math
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/drivers", tags=["Drivers"])
+
+
+def _compute_scores(rows: list) -> list:
+    """Compute composite driver score for every row using Bayesian-smoothed ETA
+    + experience + speed safety.  Same formula as ml_service driver_scorer."""
+    if not rows:
+        return rows
+
+    # Global priors
+    all_eta = [float(r.get("eta_success_rate") or 0) for r in rows]
+    all_trips = [int(r.get("total_trips") or 0) for r in rows]
+    all_speed = [float(r.get("avg_speed_kmph") or 0) for r in rows]
+
+    global_eta_avg = sum(all_eta) / len(all_eta) if all_eta else 55.0
+    max_trips = max(all_trips) if all_trips else 1
+    confidence_trips = 15.0  # Bayesian smoothing constant
+
+    for r in rows:
+        eta_raw = float(r.get("eta_success_rate") or 0)
+        n_trips = int(r.get("total_trips") or 0)
+        speed = float(r.get("avg_speed_kmph") or 0)
+
+        # 1. Bayesian-smoothed ETA (0-100)
+        eta_score = (n_trips * eta_raw + confidence_trips * global_eta_avg) / (n_trips + confidence_trips)
+
+        # 2. Experience (0-100) — log-scaled so diminishing returns
+        import math as _m
+        exp_score = min(100, (_m.log1p(n_trips) / _m.log1p(max_trips)) * 100) if max_trips > 0 else 0
+
+        # 3. Speed safety (0-100) — ideal 20-40 km/h for trucks
+        if 20 <= speed <= 40:
+            speed_score = 100.0
+        elif speed < 20:
+            speed_score = max(0, speed / 20 * 100)
+        else:
+            speed_score = max(0, 100 - (speed - 40) * 2.5)
+
+        # Composite: ETA 35%, Experience 25%, Speed 20%, base 20% (ETA raw scaled)
+        composite = (
+            eta_score * 0.35
+            + exp_score * 0.25
+            + speed_score * 0.20
+            + min(eta_raw, 100) * 0.20
+        )
+        r["composite_score"] = round(composite, 1)
+
+    return rows
 
 
 @router.get("")
@@ -51,6 +102,9 @@ def list_drivers(
         )
         rows = cur.fetchall()
 
+    # Compute composite score for every driver in the page
+    rows = _compute_scores(rows)
+
     return {
         "data": rows,
         "total": total,
@@ -71,6 +125,10 @@ def get_driver_detail(driver_id: int, conn=Depends(get_db)):
         summary = cur.fetchone()
         if not summary:
             return {"error": "Driver not found"}
+
+        # Compute score for this driver
+        if summary:
+            _compute_scores([summary])
 
         # Recent trips
         cur.execute(

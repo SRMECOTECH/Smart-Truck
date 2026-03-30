@@ -36,6 +36,63 @@ export interface Waypoint {
   recorded_at: string;
 }
 
+export interface DriverStats {
+  driver_id: number;
+  driver_name: string;
+  driver_mobile: string;
+  total_trips: number;
+  eta_met_count: number;
+  eta_success_rate: number;
+  avg_duration_min: number;
+  avg_speed_kmph: number;
+  total_distance_km: number;
+  avg_distance_km: number;
+  vehicles_used: number;
+  avg_eta_delay_min: number;
+}
+
+export interface RouteStats {
+  origin: string;
+  destination: string;
+  route_name: string;
+  trip_count: number;
+  avg_duration_min: number;
+  avg_speed_kmph: number;
+  eta_success_rate: number;
+  avg_distance_km: number;
+}
+
+export interface VehicleStats {
+  vehicle_id: number;
+  asset_id: string;
+  asset_type: string;
+  total_trips: number;
+  drivers_used: number;
+  avg_speed_kmph: number;
+  total_distance_km: number;
+  avg_distance_km: number;
+  eta_success_rate: number;
+}
+
+export interface DriverRouteStats {
+  route_trips: number;
+  avg_duration_min: number;
+  avg_speed_kmph: number;
+  eta_success_rate: number;
+  avg_distance_km: number;
+}
+
+export interface RouteRecentTrip {
+  id: number;
+  dispatch_entry_no: string;
+  driver_name: string;
+  trip_start: string;
+  trip_duration_minutes: number;
+  avg_speed_kmph: number;
+  eta_met: boolean;
+  trip_km: number;
+}
+
 export interface TripDetail {
   trip: TripRow & {
     driver_id: number;
@@ -50,4 +107,9 @@ export interface TripDetail {
     trip_close_remark: string;
   };
   waypoints: Waypoint[];
+  driver_stats: DriverStats | null;
+  route_stats: RouteStats | null;
+  vehicle_stats: VehicleStats | null;
+  driver_route_stats: DriverRouteStats | null;
+  route_recent_trips: RouteRecentTrip[];
 }

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, MapPin, Route, Truck, Brain, Database } from 'lucide-react';
+import { LayoutDashboard, Users, MapPin, Route, Truck, Brain, Database, Building2 } from 'lucide-react';
 
 export const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -6,6 +6,7 @@ export const NAV_ITEMS = [
   { path: '/trips', label: 'Trips', icon: MapPin },
   { path: '/routes', label: 'Routes', icon: Route },
   { path: '/vehicles', label: 'Vehicles', icon: Truck },
+  { path: '/clients', label: 'Clients', icon: Building2 },
   { path: '/ml', label: 'ML Insights', icon: Brain },
   { path: '/migration', label: 'Migration', icon: Database },
 ];

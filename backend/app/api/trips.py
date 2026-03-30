@@ -125,7 +125,7 @@ def get_trip_detail(trip_id: int, conn=Depends(get_db)):
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT t.*, 
+            SELECT t.*,
                    t.ata_in AS trip_end_actual,
                    TIMESTAMPDIFF(MINUTE, t.trip_start, t.ata_in) AS trip_duration_minutes_actual,
                    d.name AS driver_name, d.mobile1 AS driver_mobile,
@@ -159,6 +159,76 @@ def get_trip_detail(trip_id: int, conn=Depends(get_db)):
         )
         waypoints = cur.fetchall()
 
+        # ── Driver performance summary ──
+        driver_stats = None
+        if trip.get("driver_id"):
+            cur.execute(
+                "SELECT * FROM driver_summary WHERE driver_id = %s",
+                (trip["driver_id"],),
+            )
+            driver_stats = cur.fetchone()
+
+        # ── Route performance summary ──
+        route_stats = None
+        origin_name = trip.get("origin_name") or ""
+        dest_name = trip.get("destination_name") or ""
+        if origin_name and dest_name:
+            cur.execute(
+                "SELECT * FROM route_summary WHERE origin = %s AND destination = %s",
+                (origin_name, dest_name),
+            )
+            route_stats = cur.fetchone()
+
+        # ── Vehicle performance summary ──
+        vehicle_stats = None
+        if trip.get("vehicle_id"):
+            cur.execute(
+                "SELECT * FROM vehicle_summary WHERE vehicle_id = %s",
+                (trip["vehicle_id"],),
+            )
+            vehicle_stats = cur.fetchone()
+
+        # ── Driver's history on this exact route ──
+        driver_route_stats = None
+        if trip.get("driver_id") and origin_name and dest_name:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS route_trips,
+                       ROUND(AVG(trip_duration_minutes), 2) AS avg_duration_min,
+                       ROUND(AVG(avg_speed_kmph), 2) AS avg_speed_kmph,
+                       ROUND(SUM(CASE WHEN eta_met = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS eta_success_rate,
+                       ROUND(AVG(trip_km), 2) AS avg_distance_km
+                FROM trips t
+                JOIN locations lo ON t.origin_id = lo.id
+                JOIN locations ld ON t.destination_id = ld.id
+                WHERE t.driver_id = %s AND lo.name = %s AND ld.name = %s
+                  AND t.trip_duration_minutes > 0
+                """,
+                (trip["driver_id"], origin_name, dest_name),
+            )
+            driver_route_stats = cur.fetchone()
+            if driver_route_stats and driver_route_stats.get("route_trips", 0) == 0:
+                driver_route_stats = None
+
+        # ── Recent trips on same route (for comparison) ──
+        cur.execute(
+            """
+            SELECT t.id, t.dispatch_entry_no, d.name AS driver_name,
+                   t.trip_start, t.trip_duration_minutes, t.avg_speed_kmph,
+                   t.eta_met, t.trip_km
+            FROM trips t
+            LEFT JOIN drivers d ON t.driver_id = d.id
+            JOIN locations lo ON t.origin_id = lo.id
+            JOIN locations ld ON t.destination_id = ld.id
+            WHERE lo.name = %s AND ld.name = %s AND t.id != %s
+              AND t.trip_duration_minutes > 0
+            ORDER BY t.trip_start DESC
+            LIMIT 10
+            """,
+            (origin_name, dest_name, trip_id),
+        )
+        route_recent_trips = cur.fetchall()
+
     # Convert datetimes to strings
     for key in trip:
         if hasattr(trip[key], "isoformat"):
@@ -167,4 +237,22 @@ def get_trip_detail(trip_id: int, conn=Depends(get_db)):
     for w in waypoints:
         w["recorded_at"] = str(w["recorded_at"]) if w["recorded_at"] else None
 
-    return {"trip": trip, "waypoints": waypoints}
+    for t_row in route_recent_trips:
+        t_row["trip_start"] = str(t_row["trip_start"]) if t_row["trip_start"] else None
+
+    if driver_stats and driver_stats.get("last_refreshed"):
+        driver_stats["last_refreshed"] = str(driver_stats["last_refreshed"])
+    if route_stats and route_stats.get("last_refreshed"):
+        route_stats["last_refreshed"] = str(route_stats["last_refreshed"])
+    if vehicle_stats and vehicle_stats.get("last_refreshed"):
+        vehicle_stats["last_refreshed"] = str(vehicle_stats["last_refreshed"])
+
+    return {
+        "trip": trip,
+        "waypoints": waypoints,
+        "driver_stats": driver_stats,
+        "route_stats": route_stats,
+        "vehicle_stats": vehicle_stats,
+        "driver_route_stats": driver_route_stats,
+        "route_recent_trips": route_recent_trips,
+    }

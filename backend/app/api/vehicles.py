@@ -98,6 +98,63 @@ def get_vehicle_detail(vehicle_id: int, conn=Depends(get_db)):
         )
         recent_trips = cur.fetchall()
 
+        # ── Top routes for this vehicle with fleet comparison ──
+        cur.execute(
+            """
+            SELECT
+                lo.name AS origin, ld.name AS destination,
+                COUNT(*) AS trip_count,
+                ROUND(AVG(t.trip_duration_minutes), 2) AS avg_duration_min,
+                ROUND(AVG(t.avg_speed_kmph), 2) AS avg_speed_kmph,
+                ROUND(AVG(t.trip_km), 2) AS avg_distance_km,
+                ROUND(SUM(CASE WHEN t.eta_met = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS eta_success_rate
+            FROM trips t
+            JOIN locations lo ON t.origin_id = lo.id
+            JOIN locations ld ON t.destination_id = ld.id
+            WHERE t.vehicle_id = %s AND t.trip_duration_minutes > 0
+            GROUP BY lo.name, ld.name
+            ORDER BY trip_count DESC
+            LIMIT 10
+            """,
+            (vehicle_id,),
+        )
+        vehicle_routes = cur.fetchall()
+
+        # Get fleet averages for those same routes
+        route_keys = [(r["origin"], r["destination"]) for r in vehicle_routes]
+        route_benchmarks = {}
+        for origin, destination in route_keys:
+            cur.execute(
+                """
+                SELECT avg_duration_min, avg_speed_kmph, avg_distance_km, eta_success_rate, trip_count
+                FROM route_summary
+                WHERE origin = %s AND destination = %s
+                """,
+                (origin, destination),
+            )
+            bench = cur.fetchone()
+            if bench:
+                route_benchmarks[f"{origin} -> {destination}"] = bench
+
+        # ── Monthly performance trend ──
+        cur.execute(
+            """
+            SELECT
+                DATE_FORMAT(t.trip_start, '%%Y-%%m') AS month,
+                COUNT(*) AS trips,
+                ROUND(AVG(t.avg_speed_kmph), 2) AS avg_speed,
+                ROUND(SUM(CASE WHEN t.eta_met = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS eta_rate,
+                ROUND(SUM(t.trip_km), 2) AS total_km
+            FROM trips t
+            WHERE t.vehicle_id = %s AND t.trip_start IS NOT NULL AND t.trip_duration_minutes > 0
+            GROUP BY month
+            ORDER BY month DESC
+            LIMIT 12
+            """,
+            (vehicle_id,),
+        )
+        monthly_trend = cur.fetchall()
+
     for t in recent_trips:
         t["trip_start"] = str(t["trip_start"]) if t["trip_start"] else None
 
@@ -105,6 +162,9 @@ def get_vehicle_detail(vehicle_id: int, conn=Depends(get_db)):
         "summary": summary,
         "drivers_used": drivers_used,
         "recent_trips": recent_trips,
+        "vehicle_routes": vehicle_routes,
+        "route_benchmarks": route_benchmarks,
+        "monthly_trend": list(reversed(monthly_trend)),
     }
 
 

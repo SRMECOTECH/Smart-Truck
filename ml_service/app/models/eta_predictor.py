@@ -40,6 +40,7 @@ def fetch_training_data(conn) -> pd.DataFrame:
                 t.eta_delay_minutes,
                 t.driver_id,
                 t.vehicle_id,
+                t.is_5am_default,
                 lo.name AS origin_name,
                 ld.name AS destination_name,
                 ds.avg_duration_min AS driver_avg_duration,
@@ -86,6 +87,7 @@ def engineer_features(df: pd.DataFrame) -> tuple:
     # Combine with DB features
     feature_df = pd.concat([temporal, df[[
         "trip_km",
+        "is_5am_default",
         "driver_avg_duration", "driver_avg_speed", "driver_eta_success",
         "driver_total_trips", "driver_vehicles_used",
         "route_avg_duration", "route_avg_distance", "route_trip_count", "route_eta_success",
