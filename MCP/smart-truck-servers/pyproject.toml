@@ -1,0 +1,9 @@
+[project]
+name = "smart-truck-mcp-servers"
+version = "0.1.0"
+description = "MCP servers wrapping Smart-Truck Backend and ML Service APIs"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=3.1.0",
+    "httpx>=0.28.0",
+]

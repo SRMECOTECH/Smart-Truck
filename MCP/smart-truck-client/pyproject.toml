@@ -1,0 +1,12 @@
+[project]
+name = "smart-truck-mcp-client"
+version = "0.1.0"
+description = "Streamlit chatbot client for Smart-Truck MCP servers"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain>=1.2.11",
+    "langchain-groq>=0.3.0",
+    "langchain-mcp-adapters>=0.2.1",
+    "python-dotenv>=1.2.2",
+    "streamlit>=1.55.0",
+]
