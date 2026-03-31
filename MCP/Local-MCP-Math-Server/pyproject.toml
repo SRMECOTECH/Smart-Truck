@@ -1,0 +1,10 @@
+[project]
+name = "local-mcp-math-server"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=3.1.0",
+    "mcp>=1.26.0",
+]
