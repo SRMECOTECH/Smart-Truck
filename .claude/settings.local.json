@@ -46,7 +46,12 @@
       "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT avg_duration, trip_count FROM smart_truck.route_time_patterns WHERE origin=''JHARSUGUDA'' AND destination=''CHENNAI'' AND hour_of_day=22 AND day_of_week=7;\")",
       "Bash(\"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -u root -proot -e \"SELECT hour_of_day, day_of_week, avg_duration, trip_count FROM smart_truck.route_time_patterns WHERE origin=''JHARSUGUDA'' AND destination=''CHENNAI'' ORDER BY trip_count DESC LIMIT 10;\")",
       "Bash(find /c/Users/Sanjoy Chattopadhyay/PycharmProjects/smart-truck/backend -name \"*.py\" -type f -exec grep -l \"locations\\\\|location\\\\|origin\\\\|destination\" {})",
-      "Bash(find /c/Users/Sanjoy Chattopadhyay/PycharmProjects/smart-truck/ml_service -name *.py -type f -path */app/*)"
+      "Bash(find /c/Users/Sanjoy Chattopadhyay/PycharmProjects/smart-truck/ml_service -name *.py -type f -path */app/*)",
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force ''MCP/Build-local-server/.git'', ''MCP/Local-MCP-Math-Server/.git'', ''MCP/Youtube-MCP-client/.git''\")",
+      "Bash(\"C:/Program Files/MySQL/MySQL Server 8.0/bin/mysql.exe\" -u root -proot smart_truck -e \"SELECT model_name, model_artifact_path FROM ml_models WHERE is_active = 1;\")",
+      "Bash(\"C:/Program Files/MySQL/MySQL Server 8.0/bin/mysql.exe\" -u root -proot smart_truck -e \"SELECT model_name, is_active, model_artifact_path FROM ml_models;\")",
+      "Bash(\"C:/Program Files/MySQL/MySQL Server 8.0/bin/mysql.exe\" -u root -proot smart_truck -e \"SELECT id, model_name, is_active, model_artifact_path FROM ml_models WHERE model_name=''client_demand_forecaster'' AND is_active=1;\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/backend/app/api\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/backend/app/core\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/backend/app/schemas\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/backend/app/services\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/ml_service/app\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/lakehouse\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/config\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/docs\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/scripts\" \"C:\\\\Users\\\\Sanjoy Chattopadhyay\\\\PycharmProjects\\\\nextGen-FMS/ml_models\")"
     ]
   }
 }

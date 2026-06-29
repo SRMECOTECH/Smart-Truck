@@ -1,0 +1,38 @@
+{
+  "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+  "num_classes": 10,
+  "aux_dim": 14,
+  "max_len": 64,
+  "dropout": 0.3,
+  "label_map": {
+    "0": "anomaly_alert",
+    "1": "demand_forecasting",
+    "2": "driver_performance",
+    "3": "driver_safety",
+    "4": "eta_sla_prediction",
+    "5": "fleet_overview",
+    "6": "route_intelligence",
+    "7": "route_optimization",
+    "8": "trip_management",
+    "9": "vehicle_tracking"
+  },
+  "class_names": [
+    "anomaly_alert",
+    "demand_forecasting",
+    "driver_performance",
+    "driver_safety",
+    "eta_sla_prediction",
+    "fleet_overview",
+    "route_intelligence",
+    "route_optimization",
+    "trip_management",
+    "vehicle_tracking"
+  ],
+  "confidence_thresholds": {
+    "high": 0.85,
+    "medium": 0.5,
+    "low": 0.0
+  },
+  "best_val_accuracy": 0.992,
+  "test_accuracy": 0.992
+}

@@ -38,7 +38,7 @@ if __name__ == "__main__" or not logging.getLogger().handlers:
 
 logger = logging.getLogger(__name__)
 
-MODELS_DIR = settings.PROJECT_ROOT / "ml_models"
+MODELS_DIR = Path(settings.ML_MODELS_DIR)
 MODELS_DIR.mkdir(exist_ok=True)
 
 

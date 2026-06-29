@@ -1,54 +1,64 @@
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 *.so
-.env
-*.pkl
-*.joblib
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
 .venv/
 venv/
 env/
+.env/
+
+# Environment and secrets
+.env
+*.env
+*.local
+*.secret
+
+# Node / frontend
 node_modules/
-dist/
-build/
-*.egg-info/
-.eggs/
-uploads/
-ml_models/
+frontend/dist/
+frontend/build/
+
+# ML / data artifacts
+*.joblib
+*.pkl
+*.pickle
 *.log
-.idea/
-.vscode/
 *.csv
 *.xls
 *.xlsx
-!data-analysis/cleaned_top100.csv
-!data-analysis/trimmed.csv
-# Environment files
-.env
-*.env
+*.parquet
+*.feather
+*.db
+*.sqlite
+*.sqlite3
+*.7z
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+# Large project folders
+uploads/
+ml_models/
+data/
+cache/
+tmp/
+temp/
+.ipynb_checkpoints/
 
-# Virtual environment
-venv/
-.env/
-.venv/
-
-# ML models (optional - if large)
-*.joblib
-
-# IDE
+# IDE / OS
 .idea/
 .vscode/
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Ignore internal modules
-journey_insights/
-driver_analysis/
+# Local project-specific folders
+journey-insights/
+driver-analysis/
 route-analysis/
+MCP/Local-MCP-Math-Server/
+MCP/Youtube-MCP-client/

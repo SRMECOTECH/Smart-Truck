@@ -18,7 +18,7 @@ from config.database import get_conn  # noqa: F401  — re-exported for ml_servi
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = settings.PROJECT_ROOT
-MODELS_DIR = PROJECT_ROOT / "ml_models"
+MODELS_DIR = Path(settings.ML_MODELS_DIR)
 
 # In-memory model cache
 _model_cache: Dict[str, object] = {}
