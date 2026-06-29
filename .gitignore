@@ -30,6 +30,15 @@ frontend/build/
 *.joblib
 *.pkl
 *.pickle
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+*.h5
+*.npy
+*.npz
 *.log
 *.csv
 *.xls
